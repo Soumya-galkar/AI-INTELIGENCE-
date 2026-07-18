@@ -1,5 +1,14 @@
 from html import entities
+from fastapi.middleware.cors import CORSMiddleware
 import os
+from services.maintenance_agent import (
+    get_equipment,
+    get_related_documents,
+    get_related_chunks,
+    build_context,
+    generate_maintenance_report
+)
+import json
 from urllib import response
 from fastapi import FastAPI
 from httpcore import request
@@ -29,6 +38,7 @@ from services.save_document_metadata import save_document_metadata
 from models.question_request import QuestionRequest
 from services.rag import rag_answer
 from services.graph_query import get_graph
+# from services.maintenance_agent import generate_maintenance_report
 from services.graph_builder import(
     get_or_create_node,
     create_edge
@@ -116,7 +126,8 @@ def process_document(request: ProcessRequest):
         local_path = download_file(request.storage_path)
 
         print("3. Parsing PDF...")
-        pages = extract_text_from_pdf(local_path)
+        # pages = extract_text_from_pdf(local_path)
+        pages=parse_document(local_path)
 
         print("4. Saving extracted text...")
         save_extracted_text(request.document_id, pages)
@@ -137,6 +148,33 @@ def process_document(request: ProcessRequest):
         full_text = "\n".join(page["text"] for page in pages)
 
         metadata = analyze_document(full_text)
+        # newwwww
+        pid_equipment = []
+
+        for page in pages:
+            pid_equipment.extend(page.get("equipment_tags", []))
+
+            existing = {
+    e["id"]
+        for e in metadata.get("equipment", [])
+        if isinstance(e, dict)
+}
+
+        for tag in set(pid_equipment):
+
+            if tag not in existing:
+
+                metadata.setdefault("equipment", []).append({
+            "id": tag,
+            "type": "Unknown",
+            "manufacturer": "",
+            "status": ""
+        })
+        # newwwww
+        print(metadata)
+        print(type(metadata))
+        print(metadata.get("equipment"))
+        print(type(metadata.get("equipment")))
         save_document_metadata(
             request.document_id,
             metadata
@@ -155,9 +193,14 @@ def process_document(request: ProcessRequest):
         "Document",
         document_name
     )    
-
-        for equipment in metadata.get("equipment",[]):
-        # for equipment in equipment_list:
+        equipment_list = metadata.get("equipment", [])
+        if isinstance(equipment_list, str):
+            try:
+                equipment_list = json.loads(equipment_list)
+            except json.JSONDecodeError:
+                equipment_list = []
+        # for equipment in metadata.get("equipment",[]):
+        for equipment in equipment_list:
                 equipment_node  =  get_or_create_node(
             "Equipment",
             equipment["id"],
@@ -168,6 +211,98 @@ def process_document(request: ProcessRequest):
             document_node,
             "MENTIONED_IN"
         )
+        # new 
+          # ==========================
+    # STEP 1 - Work Orders
+    # ==========================
+
+        for work_order in metadata.get("work_orders", []):
+
+                workorder_node = get_or_create_node(
+            "WorkOrder",
+            work_order["id"],
+            metadata=work_order
+        )
+
+        create_edge(
+            equipment_node,
+            workorder_node,
+            "HAS_WORK_ORDER"
+        )
+
+        create_edge(
+            workorder_node,
+            document_node,
+            "REFERENCED_IN"
+        )
+
+    # ==========================
+    # STEP 2 - Parameters
+    # ==========================
+
+        for parameter in metadata.get("parameters", []):
+
+            parameter_node = get_or_create_node(
+            "Parameter",
+            parameter["name"],
+            metadata=parameter
+        )
+
+        create_edge(
+            equipment_node,
+            parameter_node,
+            "OPERATES_AT"
+        )
+
+    # ==========================
+    # STEP 3 - Regulations
+    # ==========================
+
+        for regulation in metadata.get("regulations", []):
+
+            regulation_node = get_or_create_node(
+            "Regulation",
+            regulation
+        )
+
+        create_edge(
+            document_node,
+            regulation_node,
+            "COMPLIES_WITH"
+        )
+
+    # ==========================
+    # STEP 4 - Inspection Findings
+    # ==========================
+
+        for finding in metadata.get("inspection_findings", []):
+
+            finding_node = get_or_create_node(
+            "InspectionFinding",
+            finding
+        )
+
+        create_edge(
+            equipment_node,
+            finding_node,
+            "HAS_FINDING"
+        )
+
+        create_edge(
+            finding_node,
+            document_node,
+            "FOUND_IN"
+        )
+
+# Department
+        department = metadata.get("department")
+
+# Maintenance
+        maintenance = metadata.get("maintenance_type")
+
+# Risk
+        risk = metadata.get("risk_level")
+        # new
         
         department =  metadata.get("department")
         if department:
@@ -217,9 +352,6 @@ def process_document(request: ProcessRequest):
         return{"message : Document processed successfully."} 
         # print("8. Updating status...")
         # update_status(request.document_id, "processed")
-
-
-           
 
         return {
             "message": "Success"
@@ -390,6 +522,29 @@ from pydantic import BaseModel
 class ChatRequest(BaseModel):
       question:str
 
+
+# gemini
+# Import your routers if they are in different files
+# from app.routes import chat_router 
+
+# 1. Initialize the FastAPI application instance
+
+# 2. Define allowed cross-origin parameters
+origins = [
+    "http://localhost:5173",    # Vite local address standard
+    "http://127.0.0.1:5173",    # Loopback matching explicit IP
+]
+
+# 3. Add CORS Middleware directly to the instance
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 @app.post("/chat")
 def chat_api(request:ChatRequest):
     try:
@@ -403,3 +558,79 @@ def chat_api(request:ChatRequest):
             "status":"error",
             "message":str(e)
         }
+# from services.parsers.parser_factory import parse_document
+# from routes.maintenance_router import router as maintance_router
+# @app.get("/maintenance/{equipment}")
+
+# def maintenance(equipment: str):
+
+#     return generate_maintenance_report(equipment)
+
+# app.include_router(maintance_router)
+
+# gemini
+# from fastapi import FastAPI
+# from fastapi.middleware.cors import CORSMiddleware
+# # Import your routers if they are in different files
+# # from app.routes import chat_router 
+
+# # 1. Initialize the FastAPI application instance
+# app = FastAPI(title="Industrial Knowledge Intelligence API")
+
+# # 2. Define allowed cross-origin parameters
+# origins = [
+#     "http://localhost:5173",    # Vite local address standard
+#     "http://127.0.0.1:5173",    # Loopback matching explicit IP
+# ]
+
+# # 3. Add CORS Middleware directly to the instance
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=origins,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # 4. Bind your operational routes AFTER middleware is attached
+# @app.post("/chat")
+# def chat_api(request: ChatRequest):
+#     try:
+#         result = chat(request.question)
+#         return {
+#             "status": "success",
+#             "data": result
+#         }      
+#     except Exception as e:
+#         return {
+#             "status": "error",
+#             "message": str(e)
+#         }
+
+# # If you are using APIRouter from external files, include them here:
+# # app.include_router(chat_router)
+
+@app.get("/maintenance/debug/{equipment}")
+def maintenance_debug(equipment: str):
+
+    eq = get_equipment(equipment)
+    print("Equipment:", eq)
+
+    if eq is None:
+        return {"step": "get_equipment", "data": None}
+
+    docs = get_related_documents(eq["id"])
+    print("Documents:", docs)
+
+    chunks = get_related_chunks(docs)
+    print("Chunks:", chunks)
+
+    context = build_context(eq, docs, chunks)
+    print("Context:", context[:500])
+
+    return {
+        "equipment": eq,
+        "documents": docs,
+        "chunk_count": len(chunks),
+        "context_preview": context[:500]
+    }
