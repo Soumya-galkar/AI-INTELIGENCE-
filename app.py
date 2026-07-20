@@ -211,10 +211,7 @@ def process_document(request: ProcessRequest):
             document_node,
             "MENTIONED_IN"
         )
-        # new 
-          # ==========================
-    # STEP 1 - Work Orders
-    # ==========================
+  
 
         for work_order in metadata.get("work_orders", []):
 
@@ -236,9 +233,6 @@ def process_document(request: ProcessRequest):
             "REFERENCED_IN"
         )
 
-    # ==========================
-    # STEP 2 - Parameters
-    # ==========================
 
         for parameter in metadata.get("parameters", []):
 
@@ -254,9 +248,6 @@ def process_document(request: ProcessRequest):
             "OPERATES_AT"
         )
 
-    # ==========================
-    # STEP 3 - Regulations
-    # ==========================
 
         for regulation in metadata.get("regulations", []):
 
@@ -271,9 +262,7 @@ def process_document(request: ProcessRequest):
             "COMPLIES_WITH"
         )
 
-    # ==========================
-    # STEP 4 - Inspection Findings
-    # ==========================
+
 
         for finding in metadata.get("inspection_findings", []):
 
